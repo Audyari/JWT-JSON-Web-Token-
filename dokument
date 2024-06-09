@@ -1,0 +1,96 @@
+JWT (JSON Web Token)
+
+JWT adalah metode yang kuat untuk mentransmisikan informasi secara aman antara pihak-pihak sebagai objek JSON.
+
+Langkah 1: Instalasi
+========================
+
+mkdir jwt-example
+cd jwt-example
+npm init -y
+npm install express jsonwebtoken body-parser
+
+
+===============================================
+
+Langkah 2: Membuat Server Express
+Langkah 3: Instalasi Middleware CORS
+
+npm install cors
+
+==============================================
+
+Buat file bernama server.js dan tambahkan kode berikut:
+
+const express = require('express');
+const jwt = require('jsonwebtoken');
+const bodyParser = require('body-parser');
+const cors = require('cors');  // Tambahkan ini
+
+const app = express();
+const PORT = 3000;
+const SECRET_KEY = 'your_secret_key';  // Ganti dengan kunci rahasia Anda
+
+app.use(bodyParser.json());
+app.use(cors());  // Tambahkan ini
+
+// Fungsi untuk membuat token JWT
+function createToken(userId) {
+    const payload = { userId };
+    return jwt.sign(payload, SECRET_KEY, { expiresIn: '30m' });  // Token berlaku selama 30 menit
+}
+
+// Rute untuk login dan menghasilkan token
+app.post('/login', (req, res) => {
+    const { username, password } = req.body;
+
+    if (username === 'admin' && password === 'password') {
+        const token = createToken(1);
+        res.json({ token });
+    } else {
+        res.status(401).json({ message: 'Invalid credentials' });
+    }
+});
+
+// Middleware untuk memverifikasi token
+function verifyToken(req, res, next) {
+    const token = req.headers['authorization'];
+
+    if (!token) {
+        return res.status(403).json({ message: 'Token is missing!' });
+    }
+
+    jwt.verify(token, SECRET_KEY, (err, decoded) => {
+        if (err) {
+            return res.status(403).json({ message: 'Invalid token!' });
+        }
+        req.userId = decoded.userId;
+        next();
+    });
+}
+
+// Rute untuk endpoint yang membutuhkan token
+app.get('/protected', verifyToken, (req, res) => {
+    res.json({ message: 'Protected content', userId: req.userId });
+});
+
+app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+});
+
+
+==============================================================
+
+Langkah 3: Menjalankan Kembali Server
+
+node server.js
+
+========================================
+
+Langkah 4: Menguji Aplikasi Lagi
+Buka index.html di browser.
+Masukkan username sebagai admin dan password sebagai password, lalu klik "Login".
+Jika login berhasil, klik "Get Protected Content" untuk mengambil konten terlindungi.
+
+==================================================================
+
