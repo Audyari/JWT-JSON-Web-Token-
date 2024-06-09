@@ -1,96 +1,210 @@
-JWT (JSON Web Token)
+autentikasi menggunakan JWT di aplikasi React
 
 JWT adalah metode yang kuat untuk mentransmisikan informasi secara aman antara pihak-pihak sebagai objek JSON.
 
 Langkah 1: Instalasi
 ========================
 
-mkdir jwt-example
-cd jwt-example
+Langkah 1: Setup Backend dengan Express.js dan JWT
+
+mkdir auth-backend
+cd auth-backend
 npm init -y
-npm install express jsonwebtoken body-parser
+npm install express jsonwebtoken body-parser cookie-parser cors
 
 
-===============================================
+============================================
 
-Langkah 2: Membuat Server Express
-Langkah 3: Instalasi Middleware CORS
-
-npm install cors
-
-==============================================
-
-Buat file bernama server.js dan tambahkan kode berikut:
+2. Buat file server.js:
 
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const bodyParser = require('body-parser');
-const cors = require('cors');  // Tambahkan ini
+const cookieParser = require('cookie-parser');
+const cors = require('cors');
 
 const app = express();
-const PORT = 3000;
-const SECRET_KEY = 'your_secret_key';  // Ganti dengan kunci rahasia Anda
+const PORT = 5000;
+const ACCESS_TOKEN_SECRET = 'youraccesstokensecret';
+const REFRESH_TOKEN_SECRET = 'yourrefreshtokensecret';
 
 app.use(bodyParser.json());
-app.use(cors());  // Tambahkan ini
+app.use(cookieParser());
+app.use(cors({ origin: 'http://localhost:3000', credentials: true }));
 
-// Fungsi untuk membuat token JWT
-function createToken(userId) {
-    const payload = { userId };
-    return jwt.sign(payload, SECRET_KEY, { expiresIn: '30m' });  // Token berlaku selama 30 menit
-}
+let refreshTokens = [];
 
-// Rute untuk login dan menghasilkan token
 app.post('/login', (req, res) => {
     const { username, password } = req.body;
-
-    if (username === 'admin' && password === 'password') {
-        const token = createToken(1);
-        res.json({ token });
+    if (username === 'user' && password === 'password') {
+        const accessToken = jwt.sign({ username }, ACCESS_TOKEN_SECRET, { expiresIn: '15m' });
+        const refreshToken = jwt.sign({ username }, REFRESH_TOKEN_SECRET);
+        refreshTokens.push(refreshToken);
+        res.cookie('refreshToken', refreshToken, { httpOnly: true });
+        res.json({ accessToken });
     } else {
-        res.status(401).json({ message: 'Invalid credentials' });
+        res.sendStatus(401);
     }
 });
 
-// Middleware untuk memverifikasi token
-function verifyToken(req, res, next) {
-    const token = req.headers['authorization'];
-
-    if (!token) {
-        return res.status(403).json({ message: 'Token is missing!' });
+app.post('/token', (req, res) => {
+    const { refreshToken } = req.cookies;
+    if (!refreshToken || !refreshTokens.includes(refreshToken)) {
+        return res.sendStatus(403);
     }
-
-    jwt.verify(token, SECRET_KEY, (err, decoded) => {
-        if (err) {
-            return res.status(403).json({ message: 'Invalid token!' });
-        }
-        req.userId = decoded.userId;
-        next();
+    jwt.verify(refreshToken, REFRESH_TOKEN_SECRET, (err, user) => {
+        if (err) return res.sendStatus(403);
+        const accessToken = jwt.sign({ username: user.username }, ACCESS_TOKEN_SECRET, { expiresIn: '15m' });
+        res.json({ accessToken });
     });
-}
+});
 
-// Rute untuk endpoint yang membutuhkan token
-app.get('/protected', verifyToken, (req, res) => {
-    res.json({ message: 'Protected content', userId: req.userId });
+app.post('/logout', (req, res) => {
+    const { refreshToken } = req.cookies;
+    refreshTokens = refreshTokens.filter(token => token !== refreshToken);
+    res.clearCookie('refreshToken');
+    res.sendStatus(204);
 });
 
 app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Server running on port ${PORT}`);
 });
 
 
-==============================================================
+===================================
 
-Langkah 3: Menjalankan Kembali Server
+4. Jalankan Server:
 
 node server.js
 
-========================================
+=====================================
 
-Langkah 4: Menguji Aplikasi Lagi
-Buka index.html di browser.
-Masukkan username sebagai admin dan password sebagai password, lalu klik "Login".
-Jika login berhasil, klik "Get Protected Content" untuk mengambil konten terlindungi.
+Langkah 2: Setup Frontend dengan React
 
-==================================================================
+npx create-react-app auth-frontend
+cd auth-frontend
+npm install axios
 
+
+=============================================
+
+Buat file Login.js:
+
+import React, { useState } from 'react';
+import axios from 'axios';
+
+const Login = ({ setAccessToken }) => {
+    const [username, setUsername] = useState('');
+    const [password, setPassword] = useState('');
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        try {
+            const response = await axios.post('http://localhost:5000/login', { username, password }, { withCredentials: true });
+            setAccessToken(response.data.accessToken);
+        } catch (err) {
+            console.error(err);
+        }
+    };
+
+    return (
+        <form onSubmit={handleSubmit}>
+            <input type="text" placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
+            <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} />
+            <button type="submit">Login</button>
+        </form>
+    );
+};
+
+export default Login;
+
+
+===========================================
+
+Modifikasi App.js:
+
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+import Login from './Login';
+
+const App = () => {
+    const [accessToken, setAccessToken] = useState('');
+
+    useEffect(() => {
+        const interval = setInterval(async () => {
+            try {
+                const response = await axios.post('http://localhost:5000/token', {}, { withCredentials: true });
+                setAccessToken(response.data.accessToken);
+            } catch (err) {
+                console.error(err);
+            }
+        }, 14 * 60 * 1000); // Refresh token every 14 minutes
+        return () => clearInterval(interval);
+    }, []);
+
+    return (
+        <div>
+            {accessToken ? (
+                <h2>Logged in with access token: {accessToken}</h2>
+            ) : (
+                <Login setAccessToken={setAccessToken} />
+            )}
+        </div>
+    );
+};
+
+export default App;
+
+
+===========================================
+
+Jalankan Aplikasi React:
+
+npm start
+
+
+=====================================
+
+Buka http://localhost:3000 di browser.
+Masukkan username sebagai "user" dan password sebagai "password".
+Setelah login berhasil, Anda akan melihat token akses ditampilkan.
+
+
+==========================================
+
+gambar direktory nya : 
+
+auth-backend/
+│
+├── node_modules/
+│
+├── package.json
+├── package-lock.json
+│
+├── server.js
+
+
+==============================
+
+auth-frontend/
+│
+├── node_modules/
+│
+├── public/
+│   ├── index.html
+│   └── ...
+│
+├── src/
+│   ├── components/
+│   │   ├── Login.js
+│   ├── App.js
+│   ├── index.js
+│   └── ...
+│
+├── package.json
+├── package-lock.json
+├── .gitignore
+├── README.md
+
+
+==============================================
